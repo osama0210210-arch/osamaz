@@ -1,0 +1,23 @@
+name: OSAMAZ_HUNTER_NONSTOP
+
+on:
+  workflow_dispatch: # للتشغيل اليدوي فوراً
+  schedule:
+    - cron: '0 * * * *'  # يشتغل تلقائياً "كل رأس ساعة" (مثلاً 1:00, 2:00...)
+    - cron: '30 * * * *' # يشتغل تلقائياً "كل نص ساعة" (مثلاً 1:30, 2:30...)
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install
+        run: pip install ecdsa base58 requests
+      - name: Run
+        run: |
+          # تشغيل الكود مع وضع حد زمني (Timeout) لضمان عدم التعليق
+          timeout 55m python py.py || true
