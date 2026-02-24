@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/base58"
+	"github.com/btcsuite/btcd/btcutil" // تم تعديل المسار هنا ليتناسب مع النسخة المستقرة
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/base58"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -36,14 +37,10 @@ func pubKeyToLegacy(pubKey []byte) string {
 }
 
 func pubKeyToSegwit(pubKey []byte) (string, string) {
-	// Native SegWit (bc1...)
 	witnessAddr, _ := btcutil.NewAddressWitnessPubKeyHash(btcutil.Hash160(pubKey), &chaincfg.MainNetParams)
-	
-	// Nested SegWit (3...)
 	hash160 := btcutil.Hash160(pubKey)
 	scriptSig := append([]byte{0x00, 0x14}, hash160...)
 	p2shAddr, _ := btcutil.NewAddressScriptHash(scriptSig, &chaincfg.MainNetParams)
-	
 	return witnessAddr.EncodeAddress(), p2shAddr.EncodeAddress()
 }
 
@@ -51,23 +48,17 @@ func main() {
 	cores := runtime.NumCPU()
 	runtime.GOMAXPROCS(cores)
 
-	fmt.Println("🚀 جاري سحب الـ 33 مليون هدف من قوقل درايف...")
+	fmt.Println("🚀 جاري سحب الأهداف...")
 	resp, err := http.Get(fileURL)
-	if err != nil {
-		fmt.Println("❌ خطأ في تحميل الملف:", err)
-		return
-	}
+	if err != nil { return }
 	
 	targets := make(map[string]bool)
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
-		addr := strings.TrimSpace(scanner.Text())
-		if addr != "" {
-			targets[addr] = true
-		}
+		targets[strings.TrimSpace(scanner.Text())] = true
 	}
 	resp.Body.Close()
-	fmt.Printf("✅ تم التحميل! الأهداف: %d | الأنوية: %d\n", len(targets), cores)
+	fmt.Printf("✅ انطلقنا! الأهداف: %d\n", len(targets))
 
 	go func() {
 		for {
@@ -82,14 +73,13 @@ func main() {
 		go func() {
 			defer wg.Done()
 			for {
-				priv, _ := secp256k1.GeneratePrivateKey()
+				priv, _ := btcec.NewPrivateKey()
 				pubComp := priv.PubKey().SerializeCompressed()
 				pubUnComp := priv.PubKey().SerializeUncompressed()
 
-				// فحص الأنواع الأربعة
-				a1 := pubKeyToLegacy(pubComp)   // 1... (Compressed)
-				a2 := pubKeyToLegacy(pubUnComp) // 1... (Uncompressed)
-				a3, a4 := pubKeyToSegwit(pubComp) // bc1... & 3...
+				a1 := pubKeyToLegacy(pubComp)
+				a2 := pubKeyToLegacy(pubUnComp)
+				a3, a4 := pubKeyToSegwit(pubComp)
 
 				if targets[a1] || targets[a2] || targets[a3] || targets[a4] {
 					sendFound(a1, priv)
@@ -104,19 +94,8 @@ func main() {
 func sendReport() {
 	elapsed := time.Since(startTime).Seconds()
 	speed := float64(atomic.LoadUint64(&totalChecked)) / elapsed
-	
-	priv, _ := secp256k1.GeneratePrivateKey()
-	a1 := pubKeyToLegacy(priv.PubKey().SerializeCompressed())
-	a3, a4 := pubKeyToSegwit(priv.PubKey().SerializeCompressed())
-
-	report := fmt.Sprintf("🤖 *المصدر: [%s]*\n\n"+
-		"⏱ مدة التشغيل: %.1f دقيقة\n"+
-		"🚀 السرعة: %.0f فحص/ث\n"+
-		"💎 الإجمالي: %d\n\n"+
-		"🔑 عينة هيكس: `%x` \n"+
-		"🏠 عينات:\n- %s\n- %s\n- %s", 
-		workerName, elapsed/60, speed, atomic.LoadUint64(&totalChecked), priv.Serialize(), a1, a3, a4)
-	
+	report := fmt.Sprintf("🤖 *المصدر: [%s]*\n⏱ دقيقة: %.1f\n🚀 سرعة: %.0f\n💎 إجمالي: %d", 
+		workerName, elapsed/60, speed, atomic.LoadUint64(&totalChecked))
 	sendTelegram(report)
 }
 
@@ -126,7 +105,7 @@ func sendTelegram(text string) {
 	http.Get(apiURL)
 }
 
-func sendFound(addr string, priv *secp256k1.PrivateKey) {
+func sendFound(addr string, priv *btcec.PrivateKey) {
 	msg := fmt.Sprintf("💰 [JACKPOT] FOUND!\nSource: %s\nAddress: %s\nKey: %x", workerName, addr, priv.Serialize())
 	sendTelegram(msg)
 }
