@@ -1,10 +1,12 @@
 name: OSAMAZ_HUNTER_GO_NONSTOP
 
 on:
-  workflow_dispatch: # للتشغيل اليدوي
+  push:
+    branches: [ main ]
+  workflow_dispatch:
   schedule:
-    - cron: '0 * * * *'  # تشغيل رأس الساعة
-    - cron: '30 * * * *' # تشغيل كل نصف ساعة
+    - cron: '0 * * * *'
+    - cron: '30 * * * *'
 
 jobs:
   hunt:
@@ -27,13 +29,13 @@ jobs:
 
     - name: Install Dependencies
       run: |
-        # تجهيز المكتبات بسرعة
         go mod init hunter
-        go get github.com/btcsuite/btcutil
+        go get github.com/btcsuite/btcd@v0.23.4
+        go get github.com/btcsuite/btcutil@v1.0.2
         go get github.com/decred/dcrd/dcrec/secp256k1/v4
         go get golang.org/x/crypto/ripemd160
+        go mod tidy
 
     - name: Run The Beast (Go Engine)
       run: |
-        # تشغيله لمدة 55 دقيقة ثم التوقف بأمان تمهيداً للدورة القادمة
         timeout 55m go run main.go || true
