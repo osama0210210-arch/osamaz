@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go-version: [1.23] # تم رفع النسخة لـ 1.23 لتتوافق مع المكتبات
+        go-version: [1.23]
         node: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
     steps:
@@ -27,17 +27,17 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
 
-    - name: Install Dependencies
+    - name: Clean and Install
       run: |
+        rm -f go.mod go.sum
         go mod init hunter
-        # تثبيت النسخ المتوافقة
+        go get github.com/btcsuite/btcd@v0.23.4
         go get github.com/btcsuite/btcd/btcec/v2
-        go get github.com/btcsuite/btcd/chaincfg
-        go get github.com/btcsuite/btcutil
+        go get github.com/btcsuite/btcutil@v1.0.2
         go get github.com/decred/dcrd/dcrec/secp256k1/v4
         go get golang.org/x/crypto/ripemd160
         go mod tidy
 
-    - name: Run The Beast (Go Engine)
+    - name: Run The Beast
       run: |
         timeout 55m go run main.go || true
