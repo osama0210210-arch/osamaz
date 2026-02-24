@@ -1,23 +1,39 @@
-name: OSAMAZ_HUNTER_NONSTOP
+name: OSAMAZ_HUNTER_GO_NONSTOP
 
 on:
-  workflow_dispatch: # للتشغيل اليدوي فوراً
+  workflow_dispatch: # للتشغيل اليدوي
   schedule:
-    - cron: '0 * * * *'  # يشتغل تلقائياً "كل رأس ساعة" (مثلاً 1:00, 2:00...)
-    - cron: '30 * * * *' # يشتغل تلقائياً "كل نص ساعة" (مثلاً 1:30, 2:30...)
+    - cron: '0 * * * *'  # تشغيل رأس الساعة
+    - cron: '30 * * * *' # تشغيل كل نصف ساعة
 
 jobs:
   hunt:
+    name: Node-${{ matrix.node }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [1.21]
+        node: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-      - name: Install
-        run: pip install ecdsa base58 requests
-      - name: Run
-        run: |
-          # تشغيل الكود مع وضع حد زمني (Timeout) لضمان عدم التعليق
-          timeout 55m python py.py || true
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Install Dependencies
+      run: |
+        # تجهيز المكتبات بسرعة
+        go mod init hunter
+        go get github.com/btcsuite/btcutil
+        go get github.com/decred/dcrd/dcrec/secp256k1/v4
+        go get golang.org/x/crypto/ripemd160
+
+    - name: Run The Beast (Go Engine)
+      run: |
+        # تشغيله لمدة 55 دقيقة ثم التوقف بأمان تمهيداً للدورة القادمة
+        timeout 55m go run main.go || true
