@@ -25,7 +25,6 @@ var (
 	startTime    = time.Now()
 	token        = "5921618897:AAGu6bp5gFtatio22y-XdWUSwAd0Lk6b1HY"
 	chatID       = "227172927"
-	// رابط Hugging Face المباشر الخاص بك
 	fileURL      = "https://huggingface.co/spaces/OSAMA714/4524/resolve/main/wallets.zip?download=true"
 )
 
@@ -44,37 +43,25 @@ func main() {
 	cores := runtime.NumCPU()
 	runtime.GOMAXPROCS(cores)
 
-	sendTelegram("🚀 *بدء الهجوم الشامل*\nجاري سحب الملايين من Hugging Face...")
+	sendTelegram("🚀 *تحديث النظام: الفحص المزدوج*\nجاري شحن الـ 21 مليون عنوان...")
 
-	// مهلة تحميل كافية لسحب الـ 400+ ميجا
 	client := &http.Client{Timeout: 40 * time.Minute}
 	resp, err := client.Get(fileURL)
 	if err != nil {
-		sendTelegram("❌ فشل الاتصال برابط Hugging Face")
+		sendTelegram("❌ خطأ في الاتصال")
 		return
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		sendTelegram("❌ انقطع التحميل أثناء قراءة البيانات")
-		return
-	}
+	body, _ := io.ReadAll(resp.Body)
+	zipReader, _ := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 
-	zipReader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
-	if err != nil {
-		sendTelegram("❌ الملف ليس ZIP صحيح. تأكد من اكتمال الرفع على Hugging Face.")
-		return
-	}
-
-	// استخدام struct{} لتقليل استهلاك الرام إلى الصفر تقريباً لكل عنوان
-	targets := make(map[string]struct{}, 25000000)
+	targets := make(map[string]struct{}, 22000000)
 	for _, f := range zipReader.File {
 		rc, _ := f.Open()
 		scanner := bufio.NewScanner(rc)
 		buf := make([]byte, 0, 1024*1024)
-		scanner.Buffer(buf, 20*1024*1024)
-
+		scanner.Buffer(buf, 10*1024*1024)
 		for scanner.Scan() {
 			addr := strings.TrimSpace(scanner.Text())
 			if len(addr) > 25 {
@@ -84,8 +71,7 @@ func main() {
 		rc.Close()
 	}
 
-	count := len(targets)
-	sendTelegram(fmt.Sprintf("✅ *تم الشحن بنجاح!*\nالعدد: %d عنوان\nالحالة: الصيد بدأ الآن... 🔥", count))
+	sendTelegram(fmt.Sprintf("✅ تم تفعيل %d هدف!\n🔥 الفحص المزدوج (C/U) يعمل الآن...", len(targets)))
 
 	go func() {
 		for {
@@ -95,18 +81,25 @@ func main() {
 	}()
 
 	var wg sync.WaitGroup
-	// تشغيل مكثف لزيادة سرعة الفحص
-	for i := 0; i < cores*30; i++ {
+	for i := 0; i < cores*25; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for {
 				priv, _ := btcec.NewPrivateKey()
-				// فحص عناوين Legacy (التي تبدأ برقم 1)
-				addr := encodeAddress(priv.PubKey().SerializeCompressed())
-				if _, found := targets[addr]; found {
-					sendFound(addr, priv)
+				
+				// 1. النوع الأول: Compressed (الأكثر شيوعاً)
+				addrC := encodeAddress(priv.PubKey().SerializeCompressed())
+				if _, found := targets[addrC]; found {
+					sendFound(addrC, "Compressed", priv)
 				}
+
+				// 2. النوع الثاني: Uncompressed (المحافظ القديمة جداً)
+				addrU := encodeAddress(priv.PubKey().SerializeUncompressed())
+				if _, found := targets[addrU]; found {
+					sendFound(addrU, "Uncompressed", priv)
+				}
+
 				atomic.AddUint64(&totalChecked, 1)
 			}
 		}()
@@ -118,9 +111,25 @@ func sendReport() {
 	elapsed := time.Since(startTime).Seconds()
 	total := atomic.LoadUint64(&totalChecked)
 	speed := float64(total) / elapsed
-	msg := fmt.Sprintf("📊 *تقرير الأداء*\n🚀 السرعة: %.0f/ث\n💎 الإجمالي: %d\n⏱ المدة: %.1f دقيقة", 
-		speed, total, elapsed/60)
-	sendTelegram(msg)
+
+	// توليد عينة حية للتقرير
+	priv, _ := btcec.NewPrivateKey()
+	hexKey := fmt.Sprintf("%x", priv.Serialize())
+	addrC := encodeAddress(priv.PubKey().SerializeCompressed())
+	addrU := encodeAddress(priv.PubKey().SerializeUncompressed())
+
+	report := fmt.Sprintf("📊 *تقرير الأداء المزدوج*\n"+
+		"━━━━━━━━━━━━━━━\n"+
+		"🚀 السرعة: %.0f مفتاح/ث\n"+
+		"💎 الإجمالي: %d\n"+
+		"⏱ المدة: %.1f دقيقة\n"+
+		"━━━━━━━━━━━━━━━\n"+
+		"🔑 عينة هيكس:\n`%s` \n"+
+		"🏠 عينة Compressed:\n`%s` \n"+
+		"🏠 عينة Uncompressed:\n`%s` ", 
+		speed, total, elapsed/60, hexKey, addrC, addrU)
+	
+	sendTelegram(report)
 }
 
 func sendTelegram(text string) {
@@ -129,7 +138,7 @@ func sendTelegram(text string) {
 	http.Get(apiURL)
 }
 
-func sendFound(addr string, priv *btcec.PrivateKey) {
-	msg := fmt.Sprintf("💰 *[JACKPOT FOUND]*\nAddr: `%s` \nKey: `%x` ", addr, priv.Serialize())
+func sendFound(addr string, kind string, priv *btcec.PrivateKey) {
+	msg := fmt.Sprintf("💰 *[JACKPOT FOUND]*\n\nنوع المحفظة: %s\nالعنوان: `%s` \nالمفتاح: `%x` ", kind, addr, priv.Serialize())
 	sendTelegram(msg)
 }
