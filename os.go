@@ -42,32 +42,41 @@ func main() {
 	cores := runtime.NumCPU()
 	runtime.GOMAXPROCS(cores)
 
-	sendTelegram("🛠️ جاري تحميل الأهداف الحقيقية (نظام Zero-Error)...")
+	sendTelegram("🛠️ جاري تجهيز 5 مليون هدف (نظام الاستقرار القصوى)...")
 
-	resp, err := http.Get(fileURL)
-	if err != nil { return }
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Get(fileURL)
+	if err != nil {
+		sendTelegram("❌ خطأ في تحميل ملف الأهداف")
+		return
+	}
 	defer resp.Body.Close()
+
 	body, _ := io.ReadAll(resp.Body)
 	zipReader, _ := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 
-	// استخدام Map حقيقي للفحص المؤكد 100%
-	targets := make(map[string]struct{})
+	// تحديد 5 مليون عنوان لضمان عدم انهيار السيرفر (Killed)
+	const MaxTargets = 5000000
+	targets := make(map[string]struct{}, MaxTargets)
 	
+	count := 0
 	for _, f := range zipReader.File {
 		rc, _ := f.Open()
 		scanner := bufio.NewScanner(rc)
-		for scanner.Scan() {
+		for scanner.Scan() && count < MaxTargets {
 			addr := strings.TrimSpace(scanner.Text())
 			if len(addr) > 25 {
-				// تخزين العناوين في الذاكرة
 				targets[addr] = struct{}{}
+				count++
 			}
 		}
 		rc.Close()
+		if count >= MaxTargets { break }
 	}
 
-	sendTelegram(fmt.Sprintf("✅ تم تجهيز %d عنوان مؤكد!\n🚀 بدأ الصيد الحقيقي (بدون أخطاء)...", len(targets)))
+	sendTelegram(fmt.Sprintf("✅ تم تفعيل %d هدف حقيقي!\n🚀 انطلق الصيد (بدون أخطاء)...", count))
 
+	// تقرير كل 3 دقائق
 	go func() {
 		for {
 			time.Sleep(3 * time.Minute)
@@ -75,19 +84,19 @@ func main() {
 		}
 	}()
 
-	// تقليل عدد العمال شوي عشان الرام ما ينفجر
-	for i := 0; i < cores*20; i++ {
+	// تشغيل العمال (نظام التوربو)
+	for i := 0; i < cores*30; i++ {
 		go func() {
 			for {
 				priv, _ := btcec.NewPrivateKey()
 				
-				// فحص الـ Compressed
+				// 1. Compressed
 				addrC := encodeAddress(priv.PubKey().SerializeCompressed())
 				if _, found := targets[addrC]; found {
 					sendFound(addrC, "Compressed", priv)
 				}
 
-				// فحص الـ Uncompressed
+				// 2. Uncompressed
 				addrU := encodeAddress(priv.PubKey().SerializeUncompressed())
 				if _, found := targets[addrU]; found {
 					sendFound(addrU, "Uncompressed", priv)
@@ -97,24 +106,31 @@ func main() {
 			}
 		}()
 	}
-	select {}
+	select {} // إبقاء السكربت يعمل للأبد
 }
 
 func sendReport() {
 	elapsed := time.Since(startTime).Seconds()
 	total := atomic.LoadUint64(&totalChecked)
 	speed := float64(total) / elapsed
-	report := fmt.Sprintf("📊 *تقرير الصيد الحقيقي*\n━━━━━━━━━━━━━━━\n🚀 السرعة: %.0f K/s\n💎 الإجمالي: %d", speed, total)
+	
+	report := fmt.Sprintf("📊 *تقرير الصيد الحقيقي*\n"+
+		"━━━━━━━━━━━━━━━\n"+
+		"🚀 السرعة: %.0f K/s\n"+
+		"💎 الإجمالي: %d\n"+
+		"⏱ المدة: %.1f دقيقة", 
+		speed, total, elapsed/60)
+	
 	sendTelegram(report)
 }
 
 func sendTelegram(text string) {
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s", token, chatID, url.QueryEscape(text))
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s", 
+		token, chatID, url.QueryEscape(text))
 	http.Get(apiURL)
 }
 
 func sendFound(addr string, kind string, priv *btcec.PrivateKey) {
-	// هذا الصيد حقيقي 100% الآن
-	msg := fmt.Sprintf("💰 [JACKPOT CONFIRMED]!\nAddr: %s\nKey: %x", addr, priv.Serialize())
+	msg := fmt.Sprintf("💰 [JACKPOT CONFIRMED]!\n\nAddr: %s\nKey: %x", addr, priv.Serialize())
 	sendTelegram(msg)
 }
