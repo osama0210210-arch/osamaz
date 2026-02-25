@@ -11,13 +11,13 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/base58"
 	"golang.org/x/crypto/ripemd160"
+	"github.com/bits-and-blooms/bloom/v3" // مكتبة الفلتر الذكي
 )
 
 var (
@@ -43,60 +43,54 @@ func main() {
 	cores := runtime.NumCPU()
 	runtime.GOMAXPROCS(cores)
 
-	sendTelegram("🚀 *تحديث النظام: الفحص الجديد*\nجاري شحن الـ 21 مليون عنوان...")
+	sendTelegram("⚙️ جاري تجهيز الفلتر الذكي (ذاكرة منخفضة)...")
 
-	client := &http.Client{Timeout: 40 * time.Minute}
-	resp, err := client.Get(fileURL)
-	if err != nil {
-		sendTelegram("❌ خطأ في الاتصال")
-		return
-	}
+	resp, _ := http.Get(fileURL)
 	defer resp.Body.Close()
-
 	body, _ := io.ReadAll(resp.Body)
 	zipReader, _ := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 
-	targets := make(map[string]struct{}, 22000000)
+	// إنشاء فلتر يتسع لـ 25 مليون عنوان مع نسبة خطأ ضئيلة جداً
+	filter := bloom.NewWithEstimates(25000000, 0.0001)
+	
+	count := 0
 	for _, f := range zipReader.File {
 		rc, _ := f.Open()
 		scanner := bufio.NewScanner(rc)
-		buf := make([]byte, 0, 1024*1024)
-		scanner.Buffer(buf, 10*1024*1024)
 		for scanner.Scan() {
 			addr := strings.TrimSpace(scanner.Text())
 			if len(addr) > 25 {
-				targets[addr] = struct{}{}
+				filter.Add([]byte(addr))
+				count++
 			}
 		}
 		rc.Close()
 	}
 
-	sendTelegram(fmt.Sprintf("✅ تم تفعيل %d هدف!\n🔥 الفحص الجديد (C/U) يعمل الآن...", len(targets)))
+	sendTelegram(fmt.Sprintf("✅ الفلتر جاهز! تم حماية %d عنوان.\n🚀 انطلق الصيد...", count))
 
+	// تقرير كل دقيقتين عشان نراقب السرعة
 	go func() {
 		for {
-			time.Sleep(5 * time.Minute)
+			time.Sleep(2 * time.Minute)
 			sendReport()
 		}
 	}()
 
-	var wg sync.WaitGroup
-	for i := 0; i < cores*25; i++ {
-		wg.Add(1)
+	for i := 0; i < cores*40; i++ {
 		go func() {
-			defer wg.Done()
 			for {
 				priv, _ := btcec.NewPrivateKey()
 				
-				// 1. النوع الأول: Compressed (الأكثر شيوعاً)
+				// فحص Compressed
 				addrC := encodeAddress(priv.PubKey().SerializeCompressed())
-				if _, found := targets[addrC]; found {
+				if filter.Test([]byte(addrC)) {
 					sendFound(addrC, "Compressed", priv)
 				}
 
-				// 2. النوع الثاني: Uncompressed (المحافظ القديمة جداً)
+				// فحص Uncompressed
 				addrU := encodeAddress(priv.PubKey().SerializeUncompressed())
-				if _, found := targets[addrU]; found {
+				if filter.Test([]byte(addrU)) {
 					sendFound(addrU, "Uncompressed", priv)
 				}
 
@@ -104,41 +98,23 @@ func main() {
 			}
 		}()
 	}
-	wg.Wait()
+	select {}
 }
 
 func sendReport() {
 	elapsed := time.Since(startTime).Seconds()
 	total := atomic.LoadUint64(&totalChecked)
 	speed := float64(total) / elapsed
-
-	// توليد عينة حية للتقرير
-	priv, _ := btcec.NewPrivateKey()
-	hexKey := fmt.Sprintf("%x", priv.Serialize())
-	addrC := encodeAddress(priv.PubKey().SerializeCompressed())
-	addrU := encodeAddress(priv.PubKey().SerializeUncompressed())
-
-	report := fmt.Sprintf("📊 *تقرير سيرفر جديد*\n"+
-		"━━━━━━━━━━━━━━━\n"+
-		"🚀 السرعة: %.0f مفتاح/ث\n"+
-		"💎 الإجمالي: %d\n"+
-		"⏱ المدة: %.1f دقيقة\n"+
-		"━━━━━━━━━━━━━━━\n"+
-		"🔑 عينة هيكس:\n`%s` \n"+
-		"🏠 عينة Compressed:\n`%s` \n"+
-		"🏠 عينة Uncompressed:\n`%s` ", 
-		speed, total, elapsed/60, hexKey, addrC, addrU)
-	
+	report := fmt.Sprintf("📊 *تقرير الأخطبوط*\nالسرعة: %.0f K/s\nالإجمالي: %d", speed, total)
 	sendTelegram(report)
 }
 
 func sendTelegram(text string) {
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s&parse_mode=Markdown", 
-		token, chatID, url.QueryEscape(text))
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s", token, chatID, url.QueryEscape(text))
 	http.Get(apiURL)
 }
 
 func sendFound(addr string, kind string, priv *btcec.PrivateKey) {
-	msg := fmt.Sprintf("💰 *[JACKPOT FOUND]*\n\nنوع المحفظة: %s\nالعنوان: `%s` \nالمفتاح: `%x` ", kind, addr, priv.Serialize())
+	msg := fmt.Sprintf("💰 JACKPOT!\nAddr: %s\nKey: %x", addr, priv.Serialize())
 	sendTelegram(msg)
 }
